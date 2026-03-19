@@ -62,6 +62,44 @@ export const numericalOptions = sqliteTable("numerical_options", {
   tolerance: real("tolerance").notNull().default(0),
 });
 
+export const courses = sqliteTable("courses", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull(),
+  description: text("description").default(""),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export const quizzes = sqliteTable("quizzes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  courseId: integer("course_id")
+    .notNull()
+    .references(() => courses.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  description: text("description").default(""),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+  updatedAt: text("updated_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export const quizQuestions = sqliteTable("quiz_questions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  quizId: integer("quiz_id")
+    .notNull()
+    .references(() => quizzes.id, { onDelete: "cascade" }),
+  questionId: integer("question_id")
+    .notNull()
+    .references(() => questions.id, { onDelete: "cascade" }),
+  sortOrder: integer("sort_order").notNull().default(0),
+});
+
 export const images = sqliteTable("images", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   questionId: integer("question_id")
@@ -94,6 +132,7 @@ export const questionsRelations = relations(questions, ({ one, many }) => ({
   matchingPairs: many(matchingPairs),
   numericalOptions: many(numericalOptions),
   images: many(images),
+  quizQuestions: many(quizQuestions),
 }));
 
 export const answersRelations = relations(answers, ({ one }) => ({
@@ -120,6 +159,29 @@ export const numericalOptionsRelations = relations(numericalOptions, ({ one }) =
 export const imagesRelations = relations(images, ({ one }) => ({
   question: one(questions, {
     fields: [images.questionId],
+    references: [questions.id],
+  }),
+}));
+
+export const coursesRelations = relations(courses, ({ many }) => ({
+  quizzes: many(quizzes),
+}));
+
+export const quizzesRelations = relations(quizzes, ({ one, many }) => ({
+  course: one(courses, {
+    fields: [quizzes.courseId],
+    references: [courses.id],
+  }),
+  quizQuestions: many(quizQuestions),
+}));
+
+export const quizQuestionsRelations = relations(quizQuestions, ({ one }) => ({
+  quiz: one(quizzes, {
+    fields: [quizQuestions.quizId],
+    references: [quizzes.id],
+  }),
+  question: one(questions, {
+    fields: [quizQuestions.questionId],
     references: [questions.id],
   }),
 }));

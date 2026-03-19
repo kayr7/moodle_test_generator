@@ -3,128 +3,75 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Download, Eye, FileText } from "lucide-react";
 
-interface QuestionRow {
-  id: number;
-  type: string;
-  name: string;
-  categoryId: number | null;
-}
-
-interface Category {
+interface QuizWithCourse {
   id: number;
   name: string;
+  courseId: number;
+  courseName: string;
 }
-
-const typeLabels: Record<string, string> = {
-  multichoice: "Multiple Choice",
-  truefalse: "True/False",
-  shortanswer: "Short Answer",
-  matching: "Matching",
-  numerical: "Numerical",
-  essay: "Essay",
-};
 
 export default function ExportPage() {
-  const [questions, setQuestions] = useState<QuestionRow[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [quizzes, setQuizzes] = useState<QuizWithCourse[]>([]);
+  const [selectedQuizId, setSelectedQuizId] = useState<string>("");
   const [format, setFormat] = useState<"gift" | "xml">("gift");
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
   const [previewText, setPreviewText] = useState("");
   const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      fetch("/api/questions").then((r) => r.json()),
-      fetch("/api/categories").then((r) => r.json()),
-    ]).then(([q, c]) => {
-      setQuestions(q);
-      setCategories(c);
-      setSelectedIds(new Set(q.map((qi: QuestionRow) => qi.id)));
-    });
+    fetch("/api/quizzes")
+      .then((r) => r.json())
+      .then(setQuizzes);
   }, []);
 
-  const filteredQuestions = questions.filter((q) => {
-    if (categoryFilter !== "all" && String(q.categoryId) !== categoryFilter)
-      return false;
-    if (typeFilter !== "all" && q.type !== typeFilter) return false;
-    return true;
-  });
+  // Group quizzes by course
+  const courseGroups = quizzes.reduce<Record<string, QuizWithCourse[]>>((acc, quiz) => {
+    const key = quiz.courseName;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(quiz);
+    return acc;
+  }, {});
 
-  const toggleAll = () => {
-    const filteredIds = filteredQuestions.map((q) => q.id);
-    if (filteredIds.every((id) => selectedIds.has(id))) {
-      const next = new Set(selectedIds);
-      filteredIds.forEach((id) => next.delete(id));
-      setSelectedIds(next);
-    } else {
-      const next = new Set(selectedIds);
-      filteredIds.forEach((id) => next.add(id));
-      setSelectedIds(next);
-    }
-  };
-
-  const toggleOne = (id: number) => {
-    const next = new Set(selectedIds);
-    if (next.has(id)) {
-      next.delete(id);
-    } else {
-      next.add(id);
-    }
-    setSelectedIds(next);
-  };
+  const selectedQuiz = quizzes.find((q) => String(q.id) === selectedQuizId);
 
   const handlePreview = async () => {
+    if (!selectedQuizId) return;
+
     const res = await fetch("/api/export", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        format,
-        questionIds: Array.from(selectedIds),
-      }),
+      body: JSON.stringify({ format, quizId: Number(selectedQuizId) }),
     });
     const text = await res.text();
     setPreviewText(text);
   };
 
   const handleExport = async () => {
+    if (!selectedQuizId) return;
     setExporting(true);
     try {
       const res = await fetch("/api/export", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          format,
-          questionIds: Array.from(selectedIds),
-        }),
+        body: JSON.stringify({ format, quizId: Number(selectedQuizId) }),
       });
 
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = format === "xml" ? "questions.xml" : "questions.gift.txt";
+      const name = selectedQuiz?.name.replace(/[^a-zA-Z0-9_-]/g, "_") || "quiz";
+      a.download = format === "xml" ? `${name}.xml` : `${name}.gift.txt`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -139,19 +86,45 @@ export default function ExportPage() {
   return (
     <div className="space-y-6 max-w-4xl">
       <div>
-        <h1 className="text-3xl font-bold tracking-tight">Export Questions</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Export Quiz</h1>
         <p className="text-muted-foreground mt-1">
-          Export questions to GIFT or Moodle XML format
+          Export a quiz to GIFT or Moodle XML format
         </p>
       </div>
 
-      {/* Format & Filters */}
       <Card>
         <CardHeader>
           <CardTitle>Export Settings</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex gap-4 flex-wrap">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Quiz</label>
+              <Select value={selectedQuizId} onValueChange={setSelectedQuizId}>
+                <SelectTrigger className="w-[300px]">
+                  <SelectValue placeholder="Select a quiz to export" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.keys(courseGroups).length === 0 ? (
+                    <SelectItem value="none" disabled>
+                      No quizzes available
+                    </SelectItem>
+                  ) : (
+                    Object.entries(courseGroups).map(([courseName, courseQuizzes]) => (
+                      <SelectGroup key={courseName}>
+                        <SelectLabel>{courseName}</SelectLabel>
+                        {courseQuizzes.map((quiz) => (
+                          <SelectItem key={quiz.id} value={String(quiz.id)}>
+                            {quiz.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ))
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="space-y-2">
               <label className="text-sm font-medium">Format</label>
               <Select value={format} onValueChange={(v) => setFormat(v as "gift" | "xml")}>
@@ -164,110 +137,19 @@ export default function ExportPage() {
                 </SelectContent>
               </Select>
             </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Category</label>
-              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                <SelectTrigger className="w-[200px]">
-                  <SelectValue placeholder="All Categories" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Categories</SelectItem>
-                  {categories.map((cat) => (
-                    <SelectItem key={cat.id} value={String(cat.id)}>
-                      {cat.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Type</label>
-              <Select value={typeFilter} onValueChange={setTypeFilter}>
-                <SelectTrigger className="w-[200px]">
-                  <SelectValue placeholder="All Types" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Types</SelectItem>
-                  <SelectItem value="multichoice">Multiple Choice</SelectItem>
-                  <SelectItem value="truefalse">True/False</SelectItem>
-                  <SelectItem value="shortanswer">Short Answer</SelectItem>
-                  <SelectItem value="matching">Matching</SelectItem>
-                  <SelectItem value="numerical">Numerical</SelectItem>
-                  <SelectItem value="essay">Essay</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Question Selection */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle>
-              Select Questions ({selectedIds.size} selected)
-            </CardTitle>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-[40px]">
-                  <Checkbox
-                    checked={
-                      filteredQuestions.length > 0 &&
-                      filteredQuestions.every((q) => selectedIds.has(q.id))
-                    }
-                    onCheckedChange={toggleAll}
-                  />
-                </TableHead>
-                <TableHead>Name</TableHead>
-                <TableHead className="w-[140px]">Type</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredQuestions.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={3} className="text-center py-8 text-muted-foreground">
-                    No questions match the filters.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filteredQuestions.map((q) => (
-                  <TableRow key={q.id}>
-                    <TableCell>
-                      <Checkbox
-                        checked={selectedIds.has(q.id)}
-                        onCheckedChange={() => toggleOne(q.id)}
-                      />
-                    </TableCell>
-                    <TableCell className="font-medium">{q.name}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline">
-                        {typeLabels[q.type] || q.type}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
         </CardContent>
       </Card>
 
       {/* Actions */}
       <div className="flex justify-between">
-        <Button variant="outline" onClick={handlePreview} disabled={selectedIds.size === 0}>
+        <Button variant="outline" onClick={handlePreview} disabled={!selectedQuizId}>
           <Eye className="h-4 w-4 mr-2" />
           Preview
         </Button>
-        <Button onClick={handleExport} disabled={exporting || selectedIds.size === 0}>
+        <Button onClick={handleExport} disabled={exporting || !selectedQuizId}>
           <Download className="h-4 w-4 mr-2" />
-          {exporting ? "Exporting..." : `Export ${selectedIds.size} Questions`}
+          {exporting ? "Exporting..." : "Export Quiz"}
         </Button>
       </div>
 

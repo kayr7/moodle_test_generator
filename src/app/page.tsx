@@ -4,10 +4,10 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { FileQuestion, FolderOpen, Upload, Download, Plus } from "lucide-react";
+import { FileQuestion, FolderOpen, Upload, Download, Plus, BookOpen, ClipboardList } from "lucide-react";
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState({ questionCount: 0, categoryCount: 0 });
+  const [stats, setStats] = useState({ questionCount: 0, categoryCount: 0, courseCount: 0, quizCount: 0 });
 
   useEffect(() => {
     fetch("/api/stats")
@@ -44,6 +44,24 @@ export default function DashboardPage() {
             <div className="text-2xl font-bold">{stats.categoryCount}</div>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Courses</CardTitle>
+            <BookOpen className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.courseCount}</div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Quizzes</CardTitle>
+            <ClipboardList className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{stats.quizCount}</div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -60,6 +78,23 @@ export default function DashboardPage() {
             </p>
             <Link href="/questions/new">
               <Button>New Question</Button>
+            </Link>
+          </CardContent>
+        </Card>
+
+        <Card className="hover:shadow-md transition-shadow">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BookOpen className="h-5 w-5" />
+              Manage Courses
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-4">
+              Create courses, build quizzes, and organize questions with drag and drop.
+            </p>
+            <Link href="/courses">
+              <Button variant="outline">Courses</Button>
             </Link>
           </CardContent>
         </Card>

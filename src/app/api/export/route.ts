@@ -1,16 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db/index";
-import { getQuestions, getQuestionById, getAllCategories } from "@/lib/db/queries";
+import { getQuestions, getQuestionById, getAllCategories, getQuizById } from "@/lib/db/queries";
 import { serializeGift } from "@/lib/parsers/gift-serializer";
 import { serializeMoodleXml } from "@/lib/parsers/xml-serializer";
 import type { ParsedQuestion, QuestionType } from "@/lib/types";
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { format, questionIds, categoryId } = body as {
+  const { format, questionIds, categoryId, quizId } = body as {
     format: "gift" | "xml";
     questionIds?: number[];
     categoryId?: number | null;
+    quizId?: number;
   };
 
   if (!format || !["gift", "xml"].includes(format)) {
@@ -20,7 +21,15 @@ export async function POST(request: NextRequest) {
   const db = getDatabase();
 
   let questionList;
-  if (questionIds && questionIds.length > 0) {
+  let quizName = "questions";
+  if (quizId) {
+    const quiz = getQuizById(db, quizId);
+    if (!quiz) {
+      return NextResponse.json({ error: "Quiz not found" }, { status: 404 });
+    }
+    quizName = quiz.name.replace(/[^a-zA-Z0-9_-]/g, "_");
+    questionList = quiz.questions;
+  } else if (questionIds && questionIds.length > 0) {
     questionList = questionIds
       .map((id) => getQuestionById(db, id))
       .filter(Boolean);
@@ -76,7 +85,7 @@ export async function POST(request: NextRequest) {
       : serializeGift(parsedQuestions);
 
   const filename =
-    format === "xml" ? "questions.xml" : "questions.gift.txt";
+    format === "xml" ? `${quizName}.xml` : `${quizName}.gift.txt`;
   const contentType =
     format === "xml" ? "application/xml" : "text/plain";
 

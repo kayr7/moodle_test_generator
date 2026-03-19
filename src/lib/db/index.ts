@@ -75,6 +75,32 @@ function getDb() {
     `);
   }
 
+  // Always run migrations for new tables (safe with IF NOT EXISTS)
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS courses (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS quizzes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      course_id INTEGER NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS quiz_questions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      quiz_id INTEGER NOT NULL REFERENCES quizzes(id) ON DELETE CASCADE,
+      question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(quiz_id, question_id)
+    );
+  `);
+
   return drizzle(sqlite, { schema });
 }
 
