@@ -100,6 +100,24 @@ export const quizQuestions = sqliteTable("quiz_questions", {
   sortOrder: integer("sort_order").notNull().default(0),
 });
 
+export const tags = sqliteTable("tags", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  name: text("name").notNull().unique(),
+  createdAt: text("created_at")
+    .notNull()
+    .$defaultFn(() => new Date().toISOString()),
+});
+
+export const questionTags = sqliteTable("question_tags", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  questionId: integer("question_id")
+    .notNull()
+    .references(() => questions.id, { onDelete: "cascade" }),
+  tagId: integer("tag_id")
+    .notNull()
+    .references(() => tags.id, { onDelete: "cascade" }),
+});
+
 export const images = sqliteTable("images", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   questionId: integer("question_id")
@@ -133,6 +151,7 @@ export const questionsRelations = relations(questions, ({ one, many }) => ({
   numericalOptions: many(numericalOptions),
   images: many(images),
   quizQuestions: many(quizQuestions),
+  questionTags: many(questionTags),
 }));
 
 export const answersRelations = relations(answers, ({ one }) => ({
@@ -153,6 +172,21 @@ export const numericalOptionsRelations = relations(numericalOptions, ({ one }) =
   question: one(questions, {
     fields: [numericalOptions.questionId],
     references: [questions.id],
+  }),
+}));
+
+export const tagsRelations = relations(tags, ({ many }) => ({
+  questionTags: many(questionTags),
+}));
+
+export const questionTagsRelations = relations(questionTags, ({ one }) => ({
+  question: one(questions, {
+    fields: [questionTags.questionId],
+    references: [questions.id],
+  }),
+  tag: one(tags, {
+    fields: [questionTags.tagId],
+    references: [tags.id],
   }),
 }));
 

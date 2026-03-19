@@ -99,6 +99,20 @@ function getDb() {
       sort_order INTEGER NOT NULL DEFAULT 0,
       UNIQUE(quiz_id, question_id)
     );
+    CREATE TABLE IF NOT EXISTS tags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS question_tags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      question_id INTEGER NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+      tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+      UNIQUE(question_id, tag_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_question_tags_question_id ON question_tags(question_id);
+    CREATE INDEX IF NOT EXISTS idx_question_tags_tag_id ON question_tags(tag_id);
+    CREATE INDEX IF NOT EXISTS idx_quiz_questions_question_id ON quiz_questions(question_id);
   `);
 
   return drizzle(sqlite, { schema });

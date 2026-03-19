@@ -1,4 +1,4 @@
-import { eq, like, and, desc, sql } from "drizzle-orm";
+import { eq, like, and, desc, sql, inArray } from "drizzle-orm";
 import type { AppDatabase } from "./index";
 import * as schema from "./schema";
 import type { QuestionType } from "../types";
@@ -125,6 +125,8 @@ export function getQuestionById(db: AppDatabase, id: number) {
         .get()
     : null;
 
+  const questionTagsList = getTagsForQuestion(db, id);
+
   return {
     ...question,
     answers: questionAnswers,
@@ -132,6 +134,7 @@ export function getQuestionById(db: AppDatabase, id: number) {
     numericalOptions: questionNumericalOptions,
     images: questionImages,
     category: category ?? null,
+    tags: questionTagsList,
   };
 }
 
@@ -505,6 +508,221 @@ export function getQuizQuestionIds(db: AppDatabase, quizId: number) {
     .orderBy(schema.quizQuestions.sortOrder)
     .all()
     .map((row) => row.questionId);
+}
+
+// ---- Tags ----
+
+export function getAllTags(db: AppDatabase) {
+  return db.select().from(schema.tags).orderBy(schema.tags.name).all();
+}
+
+export function getOrCreateTag(db: AppDatabase, name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return null;
+  const existing = db
+    .select()
+    .from(schema.tags)
+    .where(eq(schema.tags.name, trimmed))
+    .get();
+  if (existing) return existing;
+  return db
+    .insert(schema.tags)
+    .values({ name: trimmed })
+    .returning()
+    .get();
+}
+
+export function deleteTag(db: AppDatabase, id: number) {
+  return db.delete(schema.tags).where(eq(schema.tags.id, id)).run();
+}
+
+export function addTagsToQuestion(
+  db: AppDatabase,
+  questionId: number,
+  tagIds: number[]
+) {
+  for (const tagId of tagIds) {
+    // Use raw SQL for INSERT OR IGNORE to handle unique constraint
+    db.run(
+      sql`INSERT OR IGNORE INTO question_tags (question_id, tag_id) VALUES (${questionId}, ${tagId})`
+    );
+  }
+}
+
+export function setTagsForQuestion(
+  db: AppDatabase,
+  questionId: number,
+  tagIds: number[]
+) {
+  db.delete(schema.questionTags)
+    .where(eq(schema.questionTags.questionId, questionId))
+    .run();
+  addTagsToQuestion(db, questionId, tagIds);
+}
+
+export function removeTagFromQuestion(
+  db: AppDatabase,
+  questionId: number,
+  tagId: number
+) {
+  return db
+    .delete(schema.questionTags)
+    .where(
+      and(
+        eq(schema.questionTags.questionId, questionId),
+        eq(schema.questionTags.tagId, tagId)
+      )
+    )
+    .run();
+}
+
+export function getTagsForQuestion(db: AppDatabase, questionId: number) {
+  return db
+    .select({
+      id: schema.tags.id,
+      name: schema.tags.name,
+      createdAt: schema.tags.createdAt,
+    })
+    .from(schema.questionTags)
+    .innerJoin(schema.tags, eq(schema.questionTags.tagId, schema.tags.id))
+    .where(eq(schema.questionTags.questionId, questionId))
+    .orderBy(schema.tags.name)
+    .all();
+}
+
+export function getTagsForQuestions(db: AppDatabase, questionIds: number[]) {
+  if (questionIds.length === 0) return new Map<number, typeof schema.tags.$inferSelect[]>();
+
+  const rows = db
+    .select({
+      questionId: schema.questionTags.questionId,
+      tagId: schema.tags.id,
+      tagName: schema.tags.name,
+      tagCreatedAt: schema.tags.createdAt,
+    })
+    .from(schema.questionTags)
+    .innerJoin(schema.tags, eq(schema.questionTags.tagId, schema.tags.id))
+    .where(inArray(schema.questionTags.questionId, questionIds))
+    .orderBy(schema.tags.name)
+    .all();
+
+  const map = new Map<number, { id: number; name: string; createdAt: string }[]>();
+  for (const row of rows) {
+    if (!map.has(row.questionId)) map.set(row.questionId, []);
+    map.get(row.questionId)!.push({
+      id: row.tagId,
+      name: row.tagName,
+      createdAt: row.tagCreatedAt,
+    });
+  }
+  return map;
+}
+
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').trim();
+}
+
+export function getQuestionsEnriched(
+  db: AppDatabase,
+  filters?: {
+    categoryId?: number | null;
+    type?: QuestionType;
+    search?: string;
+    tagIds?: number[];
+  }
+) {
+  const conditions = [];
+
+  if (filters?.categoryId !== undefined) {
+    if (filters.categoryId === null) {
+      conditions.push(sql`${schema.questions.categoryId} IS NULL`);
+    } else {
+      conditions.push(eq(schema.questions.categoryId, filters.categoryId));
+    }
+  }
+
+  if (filters?.type) {
+    conditions.push(eq(schema.questions.type, filters.type));
+  }
+
+  if (filters?.search) {
+    conditions.push(
+      sql`(${like(schema.questions.name, `%${filters.search}%`)} OR ${like(schema.questions.questionText, `%${filters.search}%`)})`
+    );
+  }
+
+  if (filters?.tagIds && filters.tagIds.length > 0) {
+    conditions.push(
+      sql`${schema.questions.id} IN (SELECT question_id FROM question_tags WHERE tag_id IN (${sql.join(filters.tagIds.map(id => sql`${id}`), sql`,`)}))`
+    );
+  }
+
+  const where = conditions.length > 0 ? and(...conditions) : undefined;
+
+  const rows = db
+    .select({
+      id: schema.questions.id,
+      type: schema.questions.type,
+      name: schema.questions.name,
+      questionText: schema.questions.questionText,
+      categoryId: schema.questions.categoryId,
+      categoryName: schema.categories.name,
+      createdAt: schema.questions.createdAt,
+      updatedAt: schema.questions.updatedAt,
+    })
+    .from(schema.questions)
+    .leftJoin(schema.categories, eq(schema.questions.categoryId, schema.categories.id))
+    .where(where)
+    .orderBy(desc(schema.questions.updatedAt))
+    .all();
+
+  if (rows.length === 0) return [];
+
+  const questionIds = rows.map((r) => r.id);
+
+  // Batch fetch tags
+  const tagsMap = getTagsForQuestions(db, questionIds);
+
+  // Batch fetch quiz assignments
+  const quizRows = db
+    .select({
+      questionId: schema.quizQuestions.questionId,
+      quizId: schema.quizzes.id,
+      quizName: schema.quizzes.name,
+      courseName: schema.courses.name,
+    })
+    .from(schema.quizQuestions)
+    .innerJoin(schema.quizzes, eq(schema.quizQuestions.quizId, schema.quizzes.id))
+    .innerJoin(schema.courses, eq(schema.quizzes.courseId, schema.courses.id))
+    .where(inArray(schema.quizQuestions.questionId, questionIds))
+    .all();
+
+  const quizMap = new Map<number, { id: number; name: string; courseName: string }[]>();
+  for (const row of quizRows) {
+    if (!quizMap.has(row.questionId)) quizMap.set(row.questionId, []);
+    quizMap.get(row.questionId)!.push({
+      id: row.quizId,
+      name: row.quizName,
+      courseName: row.courseName,
+    });
+  }
+
+  return rows.map((r) => {
+    const plainText = stripHtml(r.questionText);
+    return {
+      id: r.id,
+      type: r.type,
+      name: r.name,
+      questionText: r.questionText,
+      questionTextPreview: plainText.length > 120 ? plainText.substring(0, 120) + "…" : plainText,
+      categoryId: r.categoryId,
+      categoryName: r.categoryName ?? null,
+      tags: tagsMap.get(r.id) ?? [],
+      quizzes: quizMap.get(r.id) ?? [],
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+    };
+  });
 }
 
 // ---- Stats ----

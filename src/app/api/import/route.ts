@@ -2,7 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { parseGift } from "@/lib/parsers/gift-parser";
 import { parseMoodleXml } from "@/lib/parsers/xml-parser";
 import { getDatabase } from "@/lib/db/index";
-import { createQuestion, createCategory, getAllCategories } from "@/lib/db/queries";
+import {
+  createQuestion,
+  createCategory,
+  getAllCategories,
+  getOrCreateTag,
+  addTagsToQuestion,
+} from "@/lib/db/queries";
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
@@ -38,27 +44,63 @@ export async function POST(request: NextRequest) {
     // Actually import into database
     const db = getDatabase();
 
-    // Get or create categories
-    const existingCategories = getAllCategories(db);
-    const categoryMap = new Map<string, number>();
+    // Read import options
+    const selectedIndicesRaw = formData.get("selectedIndices") as string | null;
+    const categoryOverrideId = formData.get("categoryOverrideId") as string | null;
+    const tagsRaw = formData.get("tags") as string | null;
 
-    for (const cat of existingCategories) {
-      categoryMap.set(cat.name, cat.id);
+    // Filter to only selected questions
+    let questionsToImport = result.questions;
+    if (selectedIndicesRaw) {
+      const selectedIndices: number[] = JSON.parse(selectedIndicesRaw);
+      const selectedSet = new Set(selectedIndices);
+      questionsToImport = result.questions.filter((_, i) => selectedSet.has(i));
     }
 
-    for (const catName of result.categories) {
-      if (!categoryMap.has(catName)) {
-        const newCat = createCategory(db, { name: catName });
-        categoryMap.set(catName, newCat.id);
+    // Resolve category override
+    let overrideCategoryId: number | null | undefined;
+    if (categoryOverrideId === "none") {
+      overrideCategoryId = null;
+    } else if (categoryOverrideId) {
+      overrideCategoryId = Number(categoryOverrideId);
+    }
+
+    // Get or create categories (only needed if not overriding)
+    const categoryMap = new Map<string, number>();
+    if (overrideCategoryId === undefined) {
+      const existingCategories = getAllCategories(db);
+      for (const cat of existingCategories) {
+        categoryMap.set(cat.name, cat.id);
+      }
+      for (const catName of result.categories) {
+        if (!categoryMap.has(catName)) {
+          const newCat = createCategory(db, { name: catName });
+          categoryMap.set(catName, newCat.id);
+        }
+      }
+    }
+
+    // Resolve tags
+    const tagIds: number[] = [];
+    if (tagsRaw) {
+      const tagNames: string[] = JSON.parse(tagsRaw);
+      for (const name of tagNames) {
+        const tag = getOrCreateTag(db, name);
+        if (tag) tagIds.push(tag.id);
       }
     }
 
     // Import questions
     const imported: number[] = [];
-    for (const q of result.questions) {
-      const categoryId = q.categoryPath
-        ? categoryMap.get(q.categoryPath) ?? null
-        : null;
+    for (const q of questionsToImport) {
+      let categoryId: number | null;
+      if (overrideCategoryId !== undefined) {
+        categoryId = overrideCategoryId;
+      } else {
+        categoryId = q.categoryPath
+          ? categoryMap.get(q.categoryPath) ?? null
+          : null;
+      }
 
       const created = createQuestion(db, {
         ...q,
@@ -67,6 +109,11 @@ export async function POST(request: NextRequest) {
         generalFeedback: q.generalFeedback || "",
       });
       imported.push(created.id);
+
+      // Apply tags
+      if (tagIds.length > 0) {
+        addTagsToQuestion(db, created.id, tagIds);
+      }
     }
 
     return NextResponse.json({
