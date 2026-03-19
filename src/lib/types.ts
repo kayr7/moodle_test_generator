@@ -67,6 +67,7 @@ export interface Question {
   numericalOptions?: NumericalOption;
   images?: QuestionImage[];
   category?: Category;
+  tags?: Tag[];
 }
 
 export interface Course {
@@ -91,6 +92,18 @@ export interface QuizQuestion {
   quizId: number;
   questionId: number;
   sortOrder: number;
+}
+
+export interface Tag {
+  id: number;
+  name: string;
+  createdAt: string;
+}
+
+export interface QuestionTag {
+  id: number;
+  questionId: number;
+  tagId: number;
 }
 
 // Used for parsed import data

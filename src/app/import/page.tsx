@@ -1,11 +1,19 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Table,
   TableBody,
@@ -15,7 +23,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Upload, FileText, Check, AlertCircle } from "lucide-react";
+import { TagInput } from "@/components/tag-input";
 import type { ParsedQuestion } from "@/lib/types";
+
+interface CategoryOption {
+  id: number;
+  name: string;
+}
 
 const typeLabels: Record<string, string> = {
   multichoice: "Multiple Choice",
@@ -39,6 +53,21 @@ export default function ImportPage() {
   const [importing, setImporting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+
+  // New: category override and tags
+  const [categories, setCategories] = useState<CategoryOption[]>([]);
+  const [categoryOverride, setCategoryOverride] = useState<string>("file");
+  const [importTags, setImportTags] = useState<string[]>([]);
+  const [allTagNames, setAllTagNames] = useState<string[]>([]);
+
+  useEffect(() => {
+    fetch("/api/categories")
+      .then((r) => r.json())
+      .then(setCategories);
+    fetch("/api/tags")
+      .then((r) => r.json())
+      .then((tags: { name: string }[]) => setAllTagNames(tags.map((t) => t.name)));
+  }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -68,7 +97,6 @@ export default function ImportPage() {
       const res = await fetch("/api/import", { method: "POST", body: formData });
       const data = await res.json();
       setPreview(data);
-      // Select all by default
       setSelectedIds(new Set(data.questions.map((_: ParsedQuestion, i: number) => i)));
     } catch {
       setPreview(null);
@@ -103,6 +131,15 @@ export default function ImportPage() {
     const formData = new FormData();
     formData.append("file", file);
     formData.append("action", "import");
+    formData.append("selectedIndices", JSON.stringify(Array.from(selectedIds)));
+
+    if (categoryOverride !== "file") {
+      formData.append("categoryOverrideId", categoryOverride);
+    }
+
+    if (importTags.length > 0) {
+      formData.append("tags", JSON.stringify(importTags));
+    }
 
     try {
       const res = await fetch("/api/import", { method: "POST", body: formData });
@@ -204,6 +241,52 @@ export default function ImportPage() {
       {/* Preview */}
       {preview && preview.questions.length > 0 && (
         <>
+          {/* Import settings */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Import Settings</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Assign Category</Label>
+                  <Select
+                    value={categoryOverride}
+                    onValueChange={setCategoryOverride}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Use file categories" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="file">Use file categories</SelectItem>
+                      <SelectItem value="none">No category</SelectItem>
+                      {categories.map((c) => (
+                        <SelectItem key={c.id} value={String(c.id)}>
+                          {c.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Override the category from the file for all imported questions
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Tags</Label>
+                  <TagInput
+                    value={importTags}
+                    onChange={setImportTags}
+                    suggestions={allTagNames}
+                    placeholder="Add tags for imported questions..."
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Tags will be applied to all imported questions
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
@@ -255,7 +338,11 @@ export default function ImportPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {q.categoryPath || "-"}
+                        {categoryOverride !== "file"
+                          ? categoryOverride === "none"
+                            ? "-"
+                            : categories.find((c) => String(c.id) === categoryOverride)?.name || "-"
+                          : q.categoryPath || "-"}
                       </TableCell>
                     </TableRow>
                   ))}
