@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   FileQuestion,
   FolderOpen,
+  BookOpen,
   Upload,
   Download,
   Menu,
@@ -19,6 +20,7 @@ const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/questions", label: "Questions", icon: FileQuestion },
   { href: "/categories", label: "Categories", icon: FolderOpen },
+  { href: "/courses", label: "Courses", icon: BookOpen },
   { href: "/import", label: "Import", icon: Upload },
   { href: "/export", label: "Export", icon: Download },
 ];

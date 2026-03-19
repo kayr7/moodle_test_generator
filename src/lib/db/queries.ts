@@ -300,6 +300,213 @@ export function deleteQuestion(db: AppDatabase, id: number) {
   return db.delete(schema.questions).where(eq(schema.questions.id, id)).run();
 }
 
+// ---- Courses ----
+
+export function getAllCourses(db: AppDatabase) {
+  return db.select().from(schema.courses).orderBy(schema.courses.name).all();
+}
+
+export function getCourseById(db: AppDatabase, id: number) {
+  return db.select().from(schema.courses).where(eq(schema.courses.id, id)).get();
+}
+
+export function createCourse(
+  db: AppDatabase,
+  data: { name: string; description?: string }
+) {
+  return db
+    .insert(schema.courses)
+    .values({
+      name: data.name,
+      description: data.description ?? "",
+    })
+    .returning()
+    .get();
+}
+
+export function updateCourse(
+  db: AppDatabase,
+  id: number,
+  data: { name?: string; description?: string }
+) {
+  return db
+    .update(schema.courses)
+    .set({ ...data, updatedAt: new Date().toISOString() })
+    .where(eq(schema.courses.id, id))
+    .returning()
+    .get();
+}
+
+export function deleteCourse(db: AppDatabase, id: number) {
+  return db.delete(schema.courses).where(eq(schema.courses.id, id)).run();
+}
+
+// ---- Quizzes ----
+
+export function getQuizzesByCourseId(db: AppDatabase, courseId: number) {
+  return db
+    .select()
+    .from(schema.quizzes)
+    .where(eq(schema.quizzes.courseId, courseId))
+    .orderBy(schema.quizzes.name)
+    .all();
+}
+
+export function getAllQuizzes(db: AppDatabase) {
+  return db
+    .select({
+      id: schema.quizzes.id,
+      courseId: schema.quizzes.courseId,
+      name: schema.quizzes.name,
+      description: schema.quizzes.description,
+      createdAt: schema.quizzes.createdAt,
+      updatedAt: schema.quizzes.updatedAt,
+      courseName: schema.courses.name,
+    })
+    .from(schema.quizzes)
+    .innerJoin(schema.courses, eq(schema.quizzes.courseId, schema.courses.id))
+    .orderBy(schema.courses.name, schema.quizzes.name)
+    .all();
+}
+
+export function getQuizById(db: AppDatabase, id: number) {
+  const quiz = db
+    .select()
+    .from(schema.quizzes)
+    .where(eq(schema.quizzes.id, id))
+    .get();
+
+  if (!quiz) return undefined;
+
+  const course = db
+    .select()
+    .from(schema.courses)
+    .where(eq(schema.courses.id, quiz.courseId))
+    .get();
+
+  const qqs = db
+    .select()
+    .from(schema.quizQuestions)
+    .where(eq(schema.quizQuestions.quizId, id))
+    .orderBy(schema.quizQuestions.sortOrder)
+    .all();
+
+  const questionsList = qqs
+    .map((qq) => getQuestionById(db, qq.questionId))
+    .filter(Boolean);
+
+  return {
+    ...quiz,
+    course: course ?? null,
+    questions: questionsList,
+  };
+}
+
+export function createQuiz(
+  db: AppDatabase,
+  data: { courseId: number; name: string; description?: string }
+) {
+  return db
+    .insert(schema.quizzes)
+    .values({
+      courseId: data.courseId,
+      name: data.name,
+      description: data.description ?? "",
+    })
+    .returning()
+    .get();
+}
+
+export function updateQuiz(
+  db: AppDatabase,
+  id: number,
+  data: { name?: string; description?: string }
+) {
+  return db
+    .update(schema.quizzes)
+    .set({ ...data, updatedAt: new Date().toISOString() })
+    .where(eq(schema.quizzes.id, id))
+    .returning()
+    .get();
+}
+
+export function deleteQuiz(db: AppDatabase, id: number) {
+  return db.delete(schema.quizzes).where(eq(schema.quizzes.id, id)).run();
+}
+
+// ---- Quiz Questions ----
+
+export function addQuestionToQuiz(
+  db: AppDatabase,
+  data: { quizId: number; questionId: number; sortOrder?: number }
+) {
+  const sortOrder =
+    data.sortOrder ??
+    (db
+      .select({ maxOrder: sql<number>`COALESCE(MAX(sort_order), -1)` })
+      .from(schema.quizQuestions)
+      .where(eq(schema.quizQuestions.quizId, data.quizId))
+      .get()?.maxOrder ?? -1) + 1;
+
+  return db
+    .insert(schema.quizQuestions)
+    .values({
+      quizId: data.quizId,
+      questionId: data.questionId,
+      sortOrder,
+    })
+    .returning()
+    .get();
+}
+
+export function removeQuestionFromQuiz(
+  db: AppDatabase,
+  quizId: number,
+  questionId: number
+) {
+  return db
+    .delete(schema.quizQuestions)
+    .where(
+      and(
+        eq(schema.quizQuestions.quizId, quizId),
+        eq(schema.quizQuestions.questionId, questionId)
+      )
+    )
+    .run();
+}
+
+export function reorderQuizQuestions(
+  db: AppDatabase,
+  quizId: number,
+  orderedQuestionIds: number[]
+) {
+  // Delete all existing entries for this quiz
+  db.delete(schema.quizQuestions)
+    .where(eq(schema.quizQuestions.quizId, quizId))
+    .run();
+
+  // Re-insert in new order
+  for (let i = 0; i < orderedQuestionIds.length; i++) {
+    db.insert(schema.quizQuestions)
+      .values({
+        quizId,
+        questionId: orderedQuestionIds[i],
+        sortOrder: i,
+      })
+      .run();
+  }
+}
+
+export function getQuizQuestionIds(db: AppDatabase, quizId: number) {
+  return db
+    .select({ questionId: schema.quizQuestions.questionId })
+    .from(schema.quizQuestions)
+    .where(eq(schema.quizQuestions.quizId, quizId))
+    .orderBy(schema.quizQuestions.sortOrder)
+    .all()
+    .map((row) => row.questionId);
+}
+
 // ---- Stats ----
 
 export function getStats(db: AppDatabase) {
@@ -311,9 +518,19 @@ export function getStats(db: AppDatabase) {
     .select({ count: sql<number>`count(*)` })
     .from(schema.categories)
     .get();
+  const courseCount = db
+    .select({ count: sql<number>`count(*)` })
+    .from(schema.courses)
+    .get();
+  const quizCount = db
+    .select({ count: sql<number>`count(*)` })
+    .from(schema.quizzes)
+    .get();
 
   return {
     questionCount: questionCount?.count ?? 0,
     categoryCount: categoryCount?.count ?? 0,
+    courseCount: courseCount?.count ?? 0,
+    quizCount: quizCount?.count ?? 0,
   };
 }

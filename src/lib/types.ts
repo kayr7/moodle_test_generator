@@ -69,6 +69,30 @@ export interface Question {
   category?: Category;
 }
 
+export interface Course {
+  id: number;
+  name: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Quiz {
+  id: number;
+  courseId: number;
+  name: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface QuizQuestion {
+  id: number;
+  quizId: number;
+  questionId: number;
+  sortOrder: number;
+}
+
 // Used for parsed import data
 export interface ParsedQuestion {
   type: QuestionType;
@@ -98,4 +122,5 @@ export interface ExportOptions {
   questionIds?: number[];
   categoryId?: number | null;
   includeImages?: boolean;
+  quizId?: number;
 }

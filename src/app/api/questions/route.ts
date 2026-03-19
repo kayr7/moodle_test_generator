@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getDatabase } from "@/lib/db/index";
 import { getQuestions, createQuestion } from "@/lib/db/queries";
+import { validateMultichoiceFractions } from "@/lib/validation";
 import type { QuestionType } from "@/lib/types";
 
 export async function GET(request: NextRequest) {
@@ -23,6 +24,14 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const db = getDatabase();
   const body = await request.json();
+
+  // Validate multichoice fraction sums
+  if (body.type === "multichoice" && body.answers) {
+    const error = validateMultichoiceFractions(body.answers);
+    if (error) {
+      return NextResponse.json({ error }, { status: 400 });
+    }
+  }
 
   try {
     const question = createQuestion(db, body);

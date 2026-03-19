@@ -17,6 +17,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Plus, Trash2, GripVertical, Save, ArrowLeft } from "lucide-react";
 import type { QuestionType, Answer, MatchingPair } from "@/lib/types";
+import { validateMultichoiceFractions } from "@/lib/validation";
 import Link from "next/link";
 
 interface Category {
@@ -171,6 +172,17 @@ export function QuestionForm({ questionId }: QuestionFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Validate multichoice fractions before submitting
+    if (type === "multichoice") {
+      const nonEmptyAnswers = answers.filter((a) => a.answerText.trim() !== "");
+      const error = validateMultichoiceFractions(nonEmptyAnswers);
+      if (error) {
+        alert(error);
+        return;
+      }
+    }
+
     setSaving(true);
 
     const payload: Record<string, unknown> = {
@@ -410,11 +422,42 @@ export function QuestionForm({ questionId }: QuestionFormProps) {
                 )}
               </div>
             ))}
-            <p className="text-xs text-muted-foreground">
-              Set grade to 100 for correct answers, 0 for wrong. Use partial
-              grades (e.g. 50) for partially correct answers, or negative values
-              for penalties.
-            </p>
+            {(() => {
+              const nonEmptyAnswers = answers.filter((a) => a.answerText.trim() !== "");
+              const positiveSum = nonEmptyAnswers
+                .filter((a) => a.fraction > 0)
+                .reduce((sum, a) => sum + a.fraction, 0);
+              const negativeSum = nonEmptyAnswers
+                .filter((a) => a.fraction < 0)
+                .reduce((sum, a) => sum + a.fraction, 0);
+              const isValid = Math.abs(positiveSum - 100) <= 0.01;
+
+              return (
+                <div className="space-y-1.5">
+                  <div className={`flex items-center gap-2 text-sm font-medium rounded-md px-3 py-2 ${
+                    isValid
+                      ? "bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-400"
+                      : "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-400"
+                  }`}>
+                    <span>{isValid ? "✓" : "!"}</span>
+                    <span>
+                      Positive grades sum: {positiveSum}%
+                      {!isValid && " (must be 100%)"}
+                    </span>
+                    {negativeSum < 0 && (
+                      <span className="ml-auto text-xs opacity-75">
+                        Penalties: {negativeSum}%
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Correct answer grades must sum to exactly 100%. Use partial
+                    grades (e.g. 50 + 50) for multiple correct answers. Negative
+                    values are penalties for wrong answers and don&apos;t count toward the 100%.
+                  </p>
+                </div>
+              );
+            })()}
           </CardContent>
         </Card>
       )}
