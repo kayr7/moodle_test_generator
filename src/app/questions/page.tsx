@@ -24,6 +24,7 @@ import {
 import { Plus, Search, Trash2, Pencil, Tag, X } from "lucide-react";
 import { TagInput } from "@/components/tag-input";
 import { QuizAssignDialog } from "@/components/quiz-assign-dialog";
+import { storeQuestionNavList } from "@/hooks/use-question-nav";
 
 interface TagInfo {
   id: number;
@@ -119,6 +120,13 @@ export default function QuestionsPage() {
   useEffect(() => {
     fetchQuestions();
   }, [typeFilter, categoryFilter, tagFilter]);
+
+  // Store question IDs in sessionStorage for prev/next navigation on edit pages
+  useEffect(() => {
+    if (questions.length > 0) {
+      storeQuestionNavList(questions.map((q) => q.id));
+    }
+  }, [questions]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();

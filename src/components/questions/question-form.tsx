@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,9 +15,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { Plus, Trash2, GripVertical, Save, ArrowLeft } from "lucide-react";
+import { Plus, Trash2, GripVertical, Save, ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import type { QuestionType, Answer, MatchingPair } from "@/lib/types";
 import { validateMultichoiceFractions } from "@/lib/validation";
+import { useQuestionNav } from "@/hooks/use-question-nav";
 import Link from "next/link";
 
 interface Category {
@@ -41,6 +42,7 @@ const questionTypes: { value: QuestionType; label: string }[] = [
 export function QuestionForm({ questionId }: QuestionFormProps) {
   const router = useRouter();
   const isEditing = !!questionId;
+  const { prevId, nextId, currentIndex, total, hasNav } = useQuestionNav(questionId);
 
   const [type, setType] = useState<QuestionType>("multichoice");
   const [name, setName] = useState("");
@@ -170,16 +172,14 @@ export function QuestionForm({ questionId }: QuestionFormProps) {
     setMatchingPairs(updated);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
+  const saveQuestion = useCallback(async (): Promise<boolean> => {
     // Validate multichoice fractions before submitting
     if (type === "multichoice") {
       const nonEmptyAnswers = answers.filter((a) => a.answerText.trim() !== "");
       const error = validateMultichoiceFractions(nonEmptyAnswers);
       if (error) {
         alert(error);
-        return;
+        return false;
       }
     }
 
@@ -228,25 +228,89 @@ export function QuestionForm({ questionId }: QuestionFormProps) {
         await fetch("/api/upload", { method: "POST", body: formData });
       }
 
-      router.push("/questions");
+      return true;
     } catch {
       alert("Failed to save question");
+      return false;
     } finally {
       setSaving(false);
     }
+  }, [type, name, questionText, generalFeedback, categoryId, singleAnswer, answers, matchingPairs, tolerance, isEditing, questionId, imageFile]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const ok = await saveQuestion();
+    if (ok) router.push("/questions");
   };
+
+  const handleSaveAndNext = async () => {
+    if (nextId === null) return;
+    const ok = await saveQuestion();
+    if (ok) router.push(`/questions/${nextId}/edit`);
+  };
+
+  // Keyboard shortcuts for prev/next navigation
+  useEffect(() => {
+    if (!hasNav || !isEditing) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+      if (e.altKey && e.key === "ArrowLeft" && prevId !== null) {
+        e.preventDefault();
+        router.push(`/questions/${prevId}/edit`);
+      } else if (e.altKey && e.key === "ArrowRight" && nextId !== null) {
+        e.preventDefault();
+        router.push(`/questions/${nextId}/edit`);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [hasNav, isEditing, prevId, nextId, router]);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6 max-w-3xl">
-      <div className="flex items-center gap-4">
-        <Link href="/questions">
-          <Button variant="ghost" size="icon" type="button">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
-        <h1 className="text-2xl font-bold">
-          {isEditing ? "Edit Question" : "New Question"}
-        </h1>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Link href="/questions">
+            <Button variant="ghost" size="icon" type="button">
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+          </Link>
+          <h1 className="text-2xl font-bold">
+            {isEditing ? "Edit Question" : "New Question"}
+          </h1>
+        </div>
+
+        {hasNav && isEditing && (
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="icon"
+              type="button"
+              disabled={prevId === null}
+              onClick={() => prevId !== null && router.push(`/questions/${prevId}/edit`)}
+              title="Previous question (Alt+←)"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="text-sm text-muted-foreground tabular-nums min-w-[60px] text-center">
+              {currentIndex + 1} / {total}
+            </span>
+            <Button
+              variant="outline"
+              size="icon"
+              type="button"
+              disabled={nextId === null}
+              onClick={() => nextId !== null && router.push(`/questions/${nextId}/edit`)}
+              title="Next question (Alt+→)"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Question Type */}
@@ -667,6 +731,17 @@ export function QuestionForm({ questionId }: QuestionFormProps) {
             Cancel
           </Button>
         </Link>
+        {hasNav && isEditing && nextId !== null && (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={saving}
+            onClick={handleSaveAndNext}
+          >
+            <Save className="h-4 w-4 mr-2" />
+            {saving ? "Saving..." : "Save & Next"}
+          </Button>
+        )}
         <Button type="submit" disabled={saving}>
           <Save className="h-4 w-4 mr-2" />
           {saving ? "Saving..." : isEditing ? "Update Question" : "Create Question"}
